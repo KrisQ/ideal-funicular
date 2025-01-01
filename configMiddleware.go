@@ -23,7 +23,7 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 func (cfg *apiConfig) middlewareDevMode(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if cfg.platform != "dev" {
-			respondWithError(w, http.StatusInternalServerError, "This endpoint is reserved for dev mode", fmt.Errorf("trying to connect in dev mode"))
+			respondWithError(w, http.StatusUnauthorized, "This endpoint is reserved for dev mode", fmt.Errorf("trying to connect in dev mode"))
 			return
 		}
 		next.ServeHTTP(w, r)
