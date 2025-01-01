@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync/atomic"
 
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
 
@@ -15,16 +16,28 @@ func main() {
 	const filepathRoot = "."
 	const port = "8080"
 
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
 	dbURL := os.Getenv("DB_URL")
+
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatal("couldn't open connection to DB")
 	}
 
+	err = db.Ping()
+	if err != nil {
+		log.Fatal("couldn't ping database:", err)
+	}
+
 	dbQueries := database.New(db)
+
 	apiCfg := apiConfig{
 		fileserverHits: atomic.Int32{},
 		db:             dbQueries,
+		platform:       os.Getenv("PLATFORM"),
 	}
 
 	mux := http.NewServeMux()
@@ -32,8 +45,9 @@ func main() {
 
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handleHits)
-	mux.HandleFunc("POST /admin/reset", apiCfg.handleReset)
+	mux.Handle("POST /admin/reset", apiCfg.middlewareDevMode(http.HandlerFunc(apiCfg.handleReset)))
 	mux.HandleFunc("POST /api/validate_chirp", handlerChirpsValidate)
+	mux.HandleFunc("POST /api/users", apiCfg.handlerCreateUser)
 
 	srv := &http.Server{
 		Addr:    ":" + port,
