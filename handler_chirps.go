@@ -1,6 +1,7 @@
 package main
 
 import (
+	"chirpy/internal/auth"
 	"chirpy/internal/database"
 	"encoding/json"
 	"errors"
@@ -61,28 +62,39 @@ func (cfg *apiConfig) handlerGetAllChirps(w http.ResponseWriter, r *http.Request
 
 }
 func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request) {
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Unauthorized", err)
+		return
+	}
+	userID, err := auth.ValidateJWT(token, cfg.secret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Unauthorized", err)
+		return
+	}
+
+	// Then decode the request body
 	type parameters struct {
-		Body   string    `json:"body"`
-		UserId uuid.UUID `json:"user_id"`
+		Body string `json:"body"`
 	}
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
-	err := decoder.Decode(&params)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Couldn't decode the request", err)
+	if err := decoder.Decode(&params); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Couldn't decode request", err)
 		return
 	}
 
-	chirp, err := validateChirp(params.Body)
+	// Validate and clean the chirp
+	cleanedBody, err := validateChirp(params.Body)
 	if err != nil {
-
-		respondWithError(w, http.StatusInternalServerError, "Invalid chirp", err)
+		respondWithError(w, http.StatusBadRequest, "Invalid chirp", err)
 		return
 	}
 
+	// Create the chirp using the userID from JWT
 	storedChirp, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{
-		Body:   chirp,
-		UserID: params.UserId,
+		Body:   cleanedBody,
+		UserID: userID,
 	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't create chirp", err)
