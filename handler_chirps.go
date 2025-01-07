@@ -73,7 +73,6 @@ func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Then decode the request body
 	type parameters struct {
 		Body string `json:"body"`
 	}
@@ -84,14 +83,12 @@ func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Validate and clean the chirp
 	cleanedBody, err := validateChirp(params.Body)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid chirp", err)
 		return
 	}
 
-	// Create the chirp using the userID from JWT
 	storedChirp, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{
 		Body:   cleanedBody,
 		UserID: userID,
@@ -112,8 +109,46 @@ func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request)
 
 }
 
-func validateChirp(chirp string) (string, error) {
+func (cfg *apiConfig) handlerDeleteChirp(w http.ResponseWriter, r *http.Request) {
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Unauthorized", err)
+		return
+	}
+	userID, err := auth.ValidateJWT(token, cfg.secret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Unauthorized", err)
+		return
+	}
 
+	v := r.PathValue("chirpId")
+	chirpId, err := uuid.Parse(v)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Coulnd't parse id", err)
+		return
+	}
+
+	chirp, err := cfg.db.GetChirpById(r.Context(), chirpId)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "couldn't find chrip", err)
+		return
+	}
+
+	if chirp.UserID != userID {
+
+		respondWithError(w, http.StatusForbidden, "not your chirp", err)
+		return
+	}
+
+	err = cfg.db.DeleteChirpById(r.Context(), chirpId)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "couldn't find chrip", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func validateChirp(chirp string) (string, error) {
 	const maxChirpLength = 140
 	if len(chirp) > maxChirpLength {
 		return "", errors.New("chirp is too long")
