@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"strings"
@@ -24,6 +26,19 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (str
 		return "", err
 	}
 	return ss, nil
+}
+
+func MakeRefreshToken() (string, error) {
+	b := make([]byte, 32)
+	length, err := rand.Read(b)
+	if err != nil {
+		return "", err
+	}
+	if length != 32 {
+		return "", errors.New("failed to randomize a 32 bytes")
+	}
+	encodedStr := hex.EncodeToString(b)
+	return encodedStr, nil
 }
 
 func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {

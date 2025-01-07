@@ -12,18 +12,58 @@ import (
 )
 
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-	Token     string    `json:"token"`
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	Token        string    `json:"token"`
+	RefreshToken string    `json:"refresh_token"`
+}
+
+func (cfg *apiConfig) handlerRefreshToken(w http.ResponseWriter, r *http.Request) {
+	tokenFromHeader, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "refresh tokenneeded in the request headers", err)
+		return
+	}
+	refreshToken, err := cfg.db.GetRefreshToken(r.Context(), tokenFromHeader)
+	if err != nil || refreshToken.ExpiresAt.Before(time.Now()) || (refreshToken.RevokedAt.Valid && !refreshToken.RevokedAt.Time.IsZero()) {
+		respondWithError(w, http.StatusUnauthorized, "invalid refresh token", err)
+		return
+	}
+
+	token, err := auth.MakeJWT(refreshToken.UserID, cfg.secret, time.Duration(60*60)*time.Second)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "couldn't create a new token for this user", err)
+		return
+	}
+	type Res struct {
+		Token string `json:"token"`
+	}
+	data := Res{
+		Token: token,
+	}
+	respondWithJSON(w, http.StatusOK, data)
+}
+
+func (cfg *apiConfig) handlerRevoke(w http.ResponseWriter, r *http.Request) {
+	tokenFromHeader, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "refresh tokenneeded in the request headers", err)
+		return
+	}
+	err = cfg.db.RevokeToken(r.Context(), tokenFromHeader)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "invalid refresh token", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Email     string `json:"email"`
-		Password  string `json:"password"`
-		ExpiresIn int    `json:"expires_in_seconds"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
@@ -47,22 +87,37 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusUnauthorized, "Incorrect password", err)
 		return
 	}
-	if params.ExpiresIn == 0 {
-		params.ExpiresIn = 60 * 60
-	}
 
-	token, err := auth.MakeJWT(user.ID, cfg.secret, time.Duration(params.ExpiresIn)*time.Second)
+	token, err := auth.MakeJWT(user.ID, cfg.secret, time.Duration(60*60)*time.Second)
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Unauthorized", err)
 		return
 	}
 
+	generatedRefreshToken, err := auth.MakeRefreshToken()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "error creating a refresh token", err)
+		return
+	}
+
+	futureTime := time.Now().AddDate(0, 0, 60)
+	refreshToken, err := cfg.db.CreateRefreshToken(r.Context(), database.CreateRefreshTokenParams{
+		Token:     generatedRefreshToken,
+		UserID:    user.ID,
+		ExpiresAt: futureTime,
+	})
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "couldn't create a refresh token", err)
+		return
+	}
+
 	data := User{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email,
-		Token:     token,
+		ID:           user.ID,
+		CreatedAt:    user.CreatedAt,
+		UpdatedAt:    user.UpdatedAt,
+		Email:        user.Email,
+		Token:        token,
+		RefreshToken: refreshToken.Token,
 	}
 
 	respondWithJSON(w, http.StatusOK, data)

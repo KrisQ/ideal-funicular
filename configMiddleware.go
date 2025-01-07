@@ -9,7 +9,7 @@ import (
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
-	db             database.DBInterface
+	db             *database.Queries
 	platform       string
 	secret         string
 }
