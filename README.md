@@ -79,3 +79,7 @@ go test ./...
 - **SQLC:** Auto-generated database queries keep the codebase tidy.
 - **Testing:** MockDB ensures your chirps are always tweet-perfect.
 
+---
+
+📜 License
+MIT License 
